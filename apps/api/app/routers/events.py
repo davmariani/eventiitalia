@@ -1,12 +1,13 @@
 import math
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import and_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import settings
 from app.geo_places import search_places
 from app.models import Event, EventSource
 from app.refresh import get_event_window, refresh_demo_data
@@ -108,7 +109,9 @@ def demo_events() -> list[EventSummary]:
 
 
 @router.post("/admin/refresh-db")
-def refresh_db(db: Session = Depends(get_db)) -> dict:
+def refresh_db(db: Session = Depends(get_db), x_admin_token: str | None = Header(default=None)) -> dict:
+    if settings.admin_refresh_token and x_admin_token != settings.admin_refresh_token:
+        raise HTTPException(status_code=401, detail="Token amministratore non valido.")
     try:
         count = refresh_demo_data(db)
         return {

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     nominatim_user_agent: str = "FesteItalia/0.1 geocoder"
     nominatim_email: str | None = None
+    admin_refresh_token: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

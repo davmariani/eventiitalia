@@ -72,6 +72,7 @@ export default function EventDiscovery() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState("Aggiornamento automatico alle 01:00");
+  const [adminToken, setAdminToken] = useState("");
   const [departureQuery, setDepartureQuery] = useState("");
   const [departure, setDeparture] = useState<PlaceItem | null>(null);
   const [placeResults, setPlaceResults] = useState<PlaceItem[]>([]);
@@ -275,7 +276,9 @@ export default function EventDiscovery() {
     setIsRefreshing(true);
     setRefreshMessage("Aggiornamento in corso...");
     try {
-      const response = await fetch(`${apiBase()}/api/admin/refresh-db`, { method: "POST" });
+      const headers: HeadersInit = {};
+      if (adminToken.trim()) headers["X-Admin-Token"] = adminToken.trim();
+      const response = await fetch(`${apiBase()}/api/admin/refresh-db`, { method: "POST", headers });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.message ?? "Aggiornamento non riuscito");
       setRefreshMessage(`Database aggiornato: ${data.updated_events ?? 0} eventi`);
@@ -302,9 +305,10 @@ export default function EventDiscovery() {
       {(geoMessage || isSearching) && <div className="selected-date-note">{isSearching ? "Ricerca in corso..." : geoMessage}</div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
         <div className="selected-date-note" style={{ margin: 0 }}>{refreshMessage}</div>
-        <button type="button" onClick={refreshDatabase} disabled={isRefreshing} style={{ border: "none", borderRadius: "999px", background: "#d95d39", color: "white", padding: "0.7rem 1rem", cursor: isRefreshing ? "wait" : "pointer", fontWeight: 700 }}>
-          {isRefreshing ? "Aggiornamento..." : "Aggiorna DB adesso"}
-        </button>
+        <div className="admin-refresh">
+          <input aria-label="Password aggiornamento DB" type="password" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} placeholder="Password admin" />
+          <button type="button" onClick={refreshDatabase} disabled={isRefreshing || !adminToken.trim()}>{isRefreshing ? "Aggiornamento..." : "Aggiorna DB adesso"}</button>
+        </div>
       </div>
       <div className="date-picker" aria-label="Seleziona la data degli eventi">
         <div className="date-picker-label">Eventi disponibili <span>{availableDateOptions.length > 0 ? new Date(`${availableDateOptions[0].value}T12:00:00`).getFullYear() : ""}</span></div>

@@ -222,6 +222,13 @@ def get_event_window(reference_now: datetime | None = None) -> tuple[datetime, d
     return now, now + timedelta(days=90)
 
 
+def prune_old_events(session: Session, reference_now: datetime | None = None) -> int:
+    cutoff = (reference_now or datetime.now(timezone.utc)).astimezone(timezone.utc) - timedelta(days=3)
+    result = session.execute(delete(Event).where(Event.ends_at.is_not(None), Event.ends_at < cutoff))
+    session.flush()
+    return result.rowcount or 0
+
+
 def _ensure_category(session: Session, name: str) -> Category:
     category = session.execute(select(Category).where(Category.slug == name.lower().replace(" ", "-")).limit(1)).scalar_one_or_none()
     if category is None:
@@ -254,7 +261,7 @@ def _ensure_location(session: Session, municipality: str, province: str, region:
 
 def refresh_demo_data(session: Session) -> int:
     Base.metadata.create_all(bind=session.bind)
-    session.execute(delete(Event))
+    prune_old_events(session)
     session.flush()
 
     start_at, end_at = get_event_window()
@@ -285,6 +292,8 @@ def refresh_demo_data(session: Session) -> int:
     created = 0
 
     for payload in payloads:
+        session.execute(delete(Event).where(Event.slug == payload["slug"]))
+        session.flush()
         category_name = payload["category_name"]
         category = categories.get(category_name) or _ensure_category(session, category_name)
         categories[category_name] = category
