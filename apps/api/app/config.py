@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://feste_user:feste_password@db:5432/feste_db"
     redis_url: str = "redis://redis:6379/0"
     geocoding_enabled: bool = True
-    geocoding_max_requests_per_refresh: int = 25
+    geocoding_max_requests_per_refresh: int = 100
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     nominatim_user_agent: str = "FesteItalia/0.1 geocoder"
     nominatim_email: str | None = None

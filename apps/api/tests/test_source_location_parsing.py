@@ -42,6 +42,8 @@ def test_eventiesagre_title_location_with_province_and_region():
     assert events[0]["region"] == "Lombardia"
     assert "http" not in events[0]["title"]
     assert "eventiesagre.it" not in events[0]["title"]
+    assert events[0]["latitude"] is None
+    assert events[0]["longitude"] is None
 
 
 def test_sagrit_title_location_overrides_navigation_text():

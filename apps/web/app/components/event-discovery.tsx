@@ -23,8 +23,8 @@ export type EventItem = {
   dates: string[];
   image: string;
   description: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   color: string;
   distanceKm?: number;
   locationPrecision?: string;
@@ -219,7 +219,7 @@ export default function EventDiscovery() {
     fetch(`${apiBase()}/api/events?${params.toString()}`)
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("API non disponibile")))
       .then((data: { items?: Array<{ title: string; short_description?: string; description?: string; starts_at?: string; ends_at?: string; official_url?: string; source_url?: string; latitude?: number; longitude?: number; distance_km?: number; location_precision?: string; category_name?: string; municipality?: string; province?: string; region?: string }> }) => {
-        const apiEvents = (data.items ?? []).filter((item) => item.starts_at && item.latitude != null && item.longitude != null).map((item) => {
+        const apiEvents = (data.items ?? []).filter((item) => item.starts_at).map((item) => {
           const start = new Date(item.starts_at as string);
           const end = item.ends_at ? new Date(item.ends_at) : start;
           const dates: string[] = [];
@@ -235,8 +235,8 @@ export default function EventDiscovery() {
             dates,
             image: "image-mostra",
             description: cleanEventDescription(item.short_description ?? item.description, title, location || "Italia"),
-            latitude: item.latitude as number,
-            longitude: item.longitude as number,
+            latitude: item.latitude,
+            longitude: item.longitude,
             color: "#d95d39",
             distanceKm: item.distance_km,
             locationPrecision: item.location_precision,
@@ -257,6 +257,7 @@ export default function EventDiscovery() {
   }, [events, dateFrom, dateTo, departure, sortMode]);
   const pagedEvents = visibleEvents.slice(0, visiblePage * eventsPerPage);
   const hasMoreEvents = pagedEvents.length < visibleEvents.length;
+  const mappableEvents = pagedEvents.filter((event): event is EventItem & { latitude: number; longitude: number } => event.latitude != null && event.longitude != null);
 
   useEffect(() => {
     setVisiblePage(1);
@@ -367,7 +368,7 @@ export default function EventDiscovery() {
       <div className="category-filter" aria-label="Filtra per categoria"><span className="filter-label">Tipo di evento</span>{categoryOptions.map((category) => <button className={category === selectedCategory ? "category-chip active" : "category-chip"} key={category} onClick={() => setSelectedCategory(category)} type="button" aria-pressed={category === selectedCategory}>{category}</button>)}<a className="map-filter-link" href="#mappa">Mappa <span>↘</span></a></div>
       <div className="selected-date-note">Eventi {dateFrom === dateTo ? <>per <strong>{new Date(`${dateFrom}T12:00:00`).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</strong></> : <>dal <strong>{new Date(`${dateFrom}T12:00:00`).toLocaleDateString("it-IT", { day: "numeric", month: "long" })}</strong> al <strong>{new Date(`${dateTo}T12:00:00`).toLocaleDateString("it-IT", { day: "numeric", month: "long" })}</strong></>}{departure && <span> · {typeof radiusKm === "number" ? `${radiusKm} km da ${departure.municipality}` : "Tutta Italia"}</span>}</div>
       {visibleEvents.length > 0 ? <><div className="event-grid">{pagedEvents.map((event) => <article className="event-card" key={`${event.title}-${event.date}`}><div className={`event-image ${event.image}`}><span>{event.date.toUpperCase()}</span></div><div className="event-content"><p className="event-type">{event.type} · {event.region}</p><h3>{event.title}</h3><p>{event.location}</p>{departure && event.distanceKm != null && <p className="event-distance">📍 {event.distanceKm.toFixed(1)} km da {departure.municipality}, in linea d'aria</p>}<p className="event-description">{event.description}</p><button className="event-detail-button" type="button" onClick={() => setSelectedEvent(event)}>Scopri l&apos;evento <span>↗</span></button></div></article>)}</div>{hasMoreEvents && <div className="pagination-actions"><button type="button" onClick={() => setVisiblePage((page) => page + 1)}>Mostra altri 9 eventi <span>{pagedEvents.length}/{visibleEvents.length}</span></button></div>}</> : <div className="empty-results"><strong>{emptyMessage}</strong><span>{departure ? "Prova ad ampliare il raggio o cambiare data." : "Prova a cambiare data o categoria."}</span></div>}
-      <div className="map-section" id="mappa"><div className="map-heading"><div><p className="eyebrow">Esplora sulla mappa</p><h2>Succede<br /><em>qui vicino.</em></h2></div><div className="map-intro"><p>Gli eventi mostrati corrispondono ai filtri attivi.</p><button type="button" onClick={useCurrentLocation}>Usa la mia posizione <span>↗</span></button></div></div><MapIsland events={pagedEvents} selectedDate={dateFrom} onEventClick={(mapEvent) => { const event = pagedEvents.find((item) => item.title === mapEvent.title); if (event) setSelectedEvent(event); }} departure={departure} radiusKm={radiusKm} /></div>
+      <div className="map-section" id="mappa"><div className="map-heading"><div><p className="eyebrow">Esplora sulla mappa</p><h2>Succede<br /><em>qui vicino.</em></h2></div><div className="map-intro"><p>{mappableEvents.length === pagedEvents.length ? "Gli eventi mostrati corrispondono ai filtri attivi." : "Sulla mappa compaiono solo gli eventi con posizione verificata."}</p><button type="button" onClick={useCurrentLocation}>Usa la mia posizione <span>↗</span></button></div></div><MapIsland events={mappableEvents} selectedDate={dateFrom} onEventClick={(mapEvent) => { const event = pagedEvents.find((item) => item.title === mapEvent.title); if (event) setSelectedEvent(event); }} departure={departure} radiusKm={radiusKm} /></div>
       {selectedEvent && <div className="event-modal-backdrop" role="presentation" onMouseDown={() => setSelectedEvent(null)}><article className="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" type="button" onClick={() => setSelectedEvent(null)} aria-label="Chiudi dettaglio evento">×</button><div className={`modal-image ${selectedEvent.image}`}><span>{selectedEvent.date.toUpperCase()}</span></div><div className="modal-content"><p className="event-type">{selectedEvent.type} · {selectedEvent.region}</p><h2 id="event-modal-title">{selectedEvent.title}</h2><p className="modal-location">{selectedEvent.location}</p>{departure && selectedEvent.distanceKm != null && <p className="event-distance">Distanza geografica: {selectedEvent.distanceKm.toFixed(1)} km da {departure.municipality}</p>}<p>{selectedEvent.description}</p><div className="modal-facts"><span><strong>Quando</strong>{selectedEvent.date}</span><span><strong>Posizione</strong>{selectedEvent.locationPrecision === "municipality" ? "Comune approssimato" : "Fonte evento"}</span></div><a className="modal-source" href={getEventSourceUrl(selectedEvent)} target="_blank" rel="noreferrer">Vai alla fonte ufficiale <span>↗</span></a></div></article></div>}
     </section>
   );

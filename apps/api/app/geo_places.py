@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+
+DATA_PATH = Path(__file__).resolve().parent / "data" / "comuni_italiani.json"
 
 
 @dataclass(frozen=True)
@@ -14,45 +21,89 @@ class GeoPlace:
     istat_code: str
 
 
-PLACES = [
-    GeoPlace("Roma", "Roma", "RM", "Lazio", 41.9028, 12.4964, "058091"),
-    GeoPlace("Milano", "Milano", "MI", "Lombardia", 45.4642, 9.19, "015146"),
-    GeoPlace("Napoli", "Napoli", "NA", "Campania", 40.8518, 14.2681, "063049"),
-    GeoPlace("Torino", "Torino", "TO", "Piemonte", 45.0703, 7.6869, "001272"),
-    GeoPlace("Palermo", "Palermo", "PA", "Sicilia", 38.1157, 13.3615, "082053"),
-    GeoPlace("Genova", "Genova", "GE", "Liguria", 44.4056, 8.9463, "010025"),
-    GeoPlace("Bologna", "Bologna", "BO", "Emilia-Romagna", 44.4949, 11.3426, "037006"),
-    GeoPlace("Firenze", "Firenze", "FI", "Toscana", 43.7696, 11.2558, "048017"),
-    GeoPlace("Venezia", "Venezia", "VE", "Veneto", 45.4408, 12.3155, "027042"),
-    GeoPlace("Perugia", "Perugia", "PG", "Umbria", 43.1107, 12.3908, "054039"),
-    GeoPlace("Viterbo", "Viterbo", "VT", "Lazio", 42.4174, 12.1084, "056059"),
-    GeoPlace("Tarquinia", "Tarquinia", "VT", "Lazio", 42.254, 11.756, "056050"),
-    GeoPlace("San Felice Circeo", "San Felice Circeo", "LT", "Lazio", 41.2375, 13.0942, "059025"),
-    GeoPlace("Latina", "Latina", "LT", "Lazio", 41.4676, 12.9037, "059011"),
-    GeoPlace("Frosinone", "Frosinone", "FR", "Lazio", 41.6396, 13.3516, "060038"),
-    GeoPlace("Rieti", "Rieti", "RI", "Lazio", 42.4049, 12.8625, "057059"),
-    GeoPlace("Foligno", "Foligno", "PG", "Umbria", 42.956, 12.7033, "054018"),
-    GeoPlace("Assisi", "Assisi", "PG", "Umbria", 43.0707, 12.6171, "054001"),
-    GeoPlace("Terni", "Terni", "TR", "Umbria", 42.5636, 12.6427, "055032"),
-    GeoPlace("Aosta", "Aosta", "AO", "Valle d'Aosta", 45.737, 7.32, "007003"),
-    GeoPlace("Trento", "Trento", "TN", "Trentino-Alto Adige", 46.0664, 11.1258, "022205"),
-    GeoPlace("Bolzano", "Bolzano", "BZ", "Trentino-Alto Adige", 46.4983, 11.3548, "021008"),
-    GeoPlace("Udine", "Udine", "UD", "Friuli-Venezia Giulia", 46.0711, 13.2346, "030129"),
-    GeoPlace("Ancona", "Ancona", "AN", "Marche", 43.6158, 13.5189, "042002"),
-    GeoPlace("L'Aquila", "L'Aquila", "AQ", "Abruzzo", 42.3498, 13.3995, "066049"),
-    GeoPlace("Campobasso", "Campobasso", "CB", "Molise", 41.5603, 14.6627, "070006"),
-    GeoPlace("Bari", "Bari", "BA", "Puglia", 41.1171, 16.8719, "072006"),
-    GeoPlace("Potenza", "Potenza", "PZ", "Basilicata", 40.6404, 15.8056, "076063"),
-    GeoPlace("Catanzaro", "Catanzaro", "CZ", "Calabria", 38.9106, 16.5877, "079023"),
-    GeoPlace("Cagliari", "Cagliari", "CA", "Sardegna", 39.2238, 9.1217, "092009"),
-]
+def normalize_place_name(value: str | None) -> str:
+    value = re.sub(r"^(comune|citta|città)\s+di\s+", "", value or "", flags=re.IGNORECASE)
+    value = value.replace("’", "'")
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+@lru_cache(maxsize=1)
+def load_places() -> tuple[GeoPlace, ...]:
+    with DATA_PATH.open("r", encoding="utf-8") as handle:
+        raw_places = json.load(handle)
+
+    places: list[GeoPlace] = []
+    for item in raw_places:
+        coordinates = item.get("coordinate") or {}
+        latitude = coordinates.get("lat")
+        longitude = coordinates.get("lng")
+        if latitude is None or longitude is None:
+            continue
+        province = item.get("sigla") or (item.get("provincia") or {}).get("sigla")
+        region = (item.get("regione") or {}).get("nome")
+        name = item.get("nome")
+        istat_code = item.get("codice")
+        if not name or not province or not region or not istat_code:
+            continue
+        places.append(
+            GeoPlace(
+                name=name,
+                municipality=name,
+                province=province,
+                region=region,
+                latitude=float(latitude),
+                longitude=float(longitude),
+                istat_code=istat_code,
+            )
+        )
+    return tuple(places)
+
+
+@lru_cache(maxsize=1)
+def _places_by_name_province() -> dict[tuple[str, str], GeoPlace]:
+    return {
+        (normalize_place_name(place.municipality), place.province.casefold()): place
+        for place in load_places()
+    }
+
+
+@lru_cache(maxsize=1)
+def _places_by_name() -> dict[str, tuple[GeoPlace, ...]]:
+    grouped: dict[str, list[GeoPlace]] = {}
+    for place in load_places():
+        grouped.setdefault(normalize_place_name(place.municipality), []).append(place)
+    return {key: tuple(value) for key, value in grouped.items()}
+
+
+def find_municipality(municipality: str | None, province: str | None = None, region: str | None = None) -> GeoPlace | None:
+    normalized_name = normalize_place_name(municipality)
+    if not normalized_name:
+        return None
+
+    if province:
+        match = _places_by_name_province().get((normalized_name, province.casefold()))
+        if match:
+            return match
+
+    matches = list(_places_by_name().get(normalized_name, ()))
+    if region:
+        normalized_region = normalize_place_name(region)
+        regional_matches = [place for place in matches if normalize_place_name(place.region) == normalized_region]
+        if len(regional_matches) == 1:
+            return regional_matches[0]
+
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def search_places(query: str, limit: int = 8) -> list[GeoPlace]:
-    normalized = query.strip().casefold()
+    normalized = normalize_place_name(query)
     if len(normalized) < 2:
         return []
 
-    starts = [place for place in PLACES if place.name.casefold().startswith(normalized)]
-    contains = [place for place in PLACES if normalized in place.name.casefold() and place not in starts]
-    return [*starts, *contains][:limit]
+    places = load_places()
+    exact = [place for place in places if normalize_place_name(place.name) == normalized]
+    starts = [place for place in places if normalize_place_name(place.name).startswith(normalized) and place not in exact]
+    contains = [place for place in places if normalized in normalize_place_name(place.name) and place not in exact and place not in starts]
+    return [*exact, *starts, *contains][:limit]

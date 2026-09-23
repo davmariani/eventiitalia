@@ -2,11 +2,38 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+import re
+from typing import TYPE_CHECKING
 
 import httpx
 
 from app.config import settings
-from app.models import Location
+
+if TYPE_CHECKING:
+    from app.models import Location
+
+
+def _normalize_place(value: str | None) -> str:
+    value = re.sub(r"^(comune|citta|città)\s+di\s+", "", value or "", flags=re.IGNORECASE)
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+def _result_matches_municipality(item: dict, municipality: str) -> bool:
+    expected = _normalize_place(municipality)
+    if not expected:
+        return False
+    address = item.get("address") or {}
+    candidates = [
+        address.get("city"),
+        address.get("town"),
+        address.get("village"),
+        address.get("municipality"),
+        address.get("hamlet"),
+        address.get("county"),
+        item.get("display_name"),
+    ]
+    normalized_candidates = [_normalize_place(str(candidate)) for candidate in candidates if candidate]
+    return any(candidate == expected or f" {expected} " in f" {candidate} " for candidate in normalized_candidates)
 
 
 @dataclass
@@ -39,8 +66,9 @@ class Geocoder:
         params: dict[str, str | int] = {
             "q": query,
             "format": "jsonv2",
-            "limit": 1,
+            "limit": 5,
             "countrycodes": "it",
+            "addressdetails": 1,
         }
         if settings.nominatim_email:
             params["email"] = settings.nominatim_email
@@ -64,15 +92,20 @@ class Geocoder:
             self.cache[key] = None
             return None
 
-        try:
-            coordinates = (float(items[0]["lat"]), float(items[0]["lon"]))
-        except (KeyError, TypeError, ValueError):
-            coordinates = None
+        coordinates = None
+        for item in items:
+            if not _result_matches_municipality(item, municipality):
+                continue
+            try:
+                coordinates = (float(item["lat"]), float(item["lon"]))
+                break
+            except (KeyError, TypeError, ValueError):
+                continue
         self.cache[key] = coordinates
         return coordinates
 
 
-def cached_location_coordinates(location: Location | None) -> tuple[float, float] | None:
+def cached_location_coordinates(location: "Location | None") -> tuple[float, float] | None:
     if location and location.latitude is not None and location.longitude is not None:
         return location.latitude, location.longitude
     return None

@@ -5,7 +5,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database import Base
-from app.geocoding import Geocoder, cached_location_coordinates
+from app.geocoding import Geocoder
+from app.geo_places import find_municipality
 from app.models import Category, Event, Location
 from app.sources.tuscia_sources import fetch_all_abruzzo_events, fetch_all_tuscany_events, fetch_all_tuscia_events, fetch_all_umbria_events
 
@@ -298,6 +299,18 @@ def refresh_demo_data(session: Session) -> int:
         category = categories.get(category_name) or _ensure_category(session, category_name)
         categories[category_name] = category
 
+        local_place = find_municipality(
+            payload["municipality"],
+            payload["province"],
+            payload["region"],
+        )
+        if local_place:
+            payload["municipality"] = local_place.municipality
+            payload["province"] = local_place.province
+            payload["region"] = local_place.region
+            payload["latitude"] = local_place.latitude
+            payload["longitude"] = local_place.longitude
+
         key = (payload["municipality"], payload["province"], payload["region"])
         existing_location = (
             locations.get(key)
@@ -309,13 +322,15 @@ def refresh_demo_data(session: Session) -> int:
                 ).limit(1)
             ).scalar_one_or_none()
         )
-        coordinates = geocoder.lookup(
+        coordinates = None if local_place else geocoder.lookup(
             payload["municipality"],
             payload["province"],
             payload["region"],
-        ) or cached_location_coordinates(existing_location)
+        )
         if coordinates:
             payload["latitude"], payload["longitude"] = coordinates
+        else:
+            payload["latitude"], payload["longitude"] = payload.get("latitude"), payload.get("longitude")
 
         location = locations.get(key) or _ensure_location(
             session,
@@ -328,6 +343,10 @@ def refresh_demo_data(session: Session) -> int:
         if coordinates and (location.latitude != coordinates[0] or location.longitude != coordinates[1]):
             location.latitude = coordinates[0]
             location.longitude = coordinates[1]
+            session.flush()
+        elif not coordinates and payload["latitude"] is None and payload["longitude"] is None and (location.latitude is not None or location.longitude is not None):
+            location.latitude = None
+            location.longitude = None
             session.flush()
         locations[key] = location
 

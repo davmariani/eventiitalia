@@ -248,6 +248,18 @@ def _clean_event_description(text: str, title: str, municipality: str | None = N
     return cleaned[:500]
 
 
+def _source_coordinates_for_event(source: SourceConfig, municipality: str | None) -> tuple[float | None, float | None]:
+    if (
+        source.latitude is not None
+        and source.longitude is not None
+        and source.municipality
+        and municipality
+        and source.municipality.casefold() == municipality.casefold()
+    ):
+        return source.latitude, source.longitude
+    return None, None
+
+
 def _parse_dates(text: str, reference_now: datetime) -> tuple[datetime, datetime] | None:
     match = DATE_PATTERN.search(text)
     if not match:
@@ -437,6 +449,7 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
         if _is_index_or_navigation_page(source, url, title, label):
             continue
 
+        latitude, longitude = _source_coordinates_for_event(source, municipality)
         events.append(
             {
                 "slug": _slug_from_title(f"{title}-{source.name}", url),
@@ -450,8 +463,8 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
                 "source_name": source.name,
                 "source_url": url,
                 "official_url": url,
-                "latitude": source.latitude,
-                "longitude": source.longitude,
+                "latitude": latitude,
+                "longitude": longitude,
                 "published": True,
                 "category_name": "Eventi",
                 "municipality": municipality,
@@ -531,6 +544,7 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
         municipality = PROVINCE_CODES.get(province, "Roma")
     title = _clean_event_title(title, url, municipality)
     description = _clean_event_description(content, title, municipality, source.name)
+    latitude, longitude = _source_coordinates_for_event(source, municipality)
     return {
         "slug": _slug_from_title(title, url),
         "title": title[:220],
@@ -543,8 +557,8 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
         "source_name": source.name,
         "source_url": url,
         "official_url": url,
-        "latitude": source.latitude,
-        "longitude": source.longitude,
+        "latitude": latitude,
+        "longitude": longitude,
         "published": True,
         "category_name": "Eventi",
         "municipality": municipality,
