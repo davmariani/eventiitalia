@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Event
+from app.models import Event, EventSource
 from app.refresh import get_event_window, refresh_demo_data
-from app.schemas import EventListResponse, EventSummary
+from app.schemas import EventListResponse, EventSourceCreate, EventSourceSummary, EventSummary
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -77,6 +77,35 @@ def refresh_db(db: Session = Depends(get_db)) -> dict:
             "updated_events": 0,
             "schedule": "ogni giorno alle 01:00",
         }
+
+
+@router.get("/admin/sources", response_model=list[EventSourceSummary])
+def list_sources(db: Session = Depends(get_db)) -> list[EventSource]:
+    return db.query(EventSource).order_by(EventSource.created_at.desc()).all()
+
+
+@router.post("/admin/sources", response_model=EventSourceSummary)
+def create_source(payload: EventSourceCreate, db: Session = Depends(get_db)) -> EventSource:
+    source = EventSource(
+        name=payload.name.strip(),
+        url=str(payload.url).strip(),
+        municipality=payload.municipality.strip() if payload.municipality else None,
+        province=payload.province.strip().upper() if payload.province else None,
+        region=payload.region.strip() or "Italia",
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        enabled=True,
+    )
+    if not source.name or not source.url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Nome e URL pubblico sono obbligatori.")
+    db.add(source)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Questa fonte esiste già.") from exc
+    db.refresh(source)
+    return source
 
 
 @router.get("/events", response_model=EventListResponse)

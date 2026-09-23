@@ -1,5 +1,6 @@
 import Link from "next/link";
 import EventDiscovery from "./components/event-discovery";
+import SourceManager from "./components/source-manager";
 
 export default function Home() {
   return (
@@ -11,6 +12,7 @@ export default function Home() {
       </section>
       <EventDiscovery />
       <section className="ideas" id="idee"><div><p className="eyebrow">Non solo eventi</p><h2>Hai voglia di partire,<br /><em>ma non sai dove?</em></h2></div><p>Itinerari, borghi e natura per trasformare una giornata libera in una piccola avventura.</p><a href="#idee">Esplora le idee <span>→</span></a></section>
+      <SourceManager />
       <footer><span>© 2026 Feste Italia</span><span>Fatto per chi ama perdersi bene.</span></footer>
     </main>
   );

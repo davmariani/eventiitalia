@@ -128,7 +128,10 @@ export default function EventDiscovery() {
     setRefreshMessage("Aggiornamento in corso...");
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const apiBase = process.env.NEXT_PUBLIC_API_URL;
+      if (!apiBase) {
+        throw new Error("API online non configurata. Imposta NEXT_PUBLIC_API_URL su Vercel.");
+      }
       const response = await fetch(`${apiBase}/api/admin/refresh-db`, { method: "POST" });
       const data = await response.json();
       if (!response.ok) {

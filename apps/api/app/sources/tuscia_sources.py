@@ -74,6 +74,7 @@ LAZIO_PROVINCE_SOURCES = [
 ]
 
 UMBRIA_PROVINCE_SOURCES = [
+    SourceConfig("Umbriatourism", "https://www.umbriatourism.it/it/eventi", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
     SourceConfig("Provincia di Perugia", "https://www.provincia.perugia.it/", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
     SourceConfig("Provincia di Terni", "https://www.provincia.terni.it/portal/comunicati-stampa", province="TR", region="Umbria", latitude=42.5636, longitude=12.6427),
 ]
@@ -92,6 +93,25 @@ PROVINCE_CODES = {
     "LT": "Latina",
     "RI": "Rieti",
 }
+
+MONTH_ALIASES = {
+    **ITALIAN_MONTHS,
+    "gen": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "mag": 5,
+    "giu": 6,
+    "lug": 7,
+    "ago": 8,
+    "set": 9,
+    "sett": 9,
+    "ott": 10,
+    "nov": 11,
+    "dic": 12,
+}
+MONTH_TOKEN_PATTERN = "|".join(sorted(MONTH_ALIASES, key=len, reverse=True))
+DATE_TOKEN_PATTERN = re.compile(rf"(?P<day>\d{{1,2}})\s+(?P<month>{MONTH_TOKEN_PATTERN})(?:\s+(?P<year>\d{{4}}))?", re.IGNORECASE)
 
 
 def _clean_text(value: str) -> str:
@@ -116,6 +136,26 @@ def _parse_dates(text: str, reference_now: datetime) -> tuple[datetime, datetime
     return start, end if end >= start else start + timedelta(hours=2)
 
 
+def _date_from_token(match: re.Match[str], reference_now: datetime) -> datetime | None:
+    month = MONTH_ALIASES.get(match.group("month").lower())
+    if not month:
+        return None
+    year = int(match.group("year") or reference_now.year)
+    if not match.group("year") and month < reference_now.month - 6:
+        year += 1
+    try:
+        return datetime(year, month, int(match.group("day")), 12, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _slug_from_title(title: str, url: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    if not slug:
+        slug = url.rstrip("/").rsplit("/", 1)[-1].lower()
+    return re.sub(r"[^a-z0-9]+", "-", slug).strip("-")[:210]
+
+
 def _event_links(source: SourceConfig, page: str) -> list[str]:
     host = urlparse(source.url).netloc
     candidates = re.findall(r'href=["\']([^"\']+)["\']', page, re.IGNORECASE)
@@ -126,9 +166,93 @@ def _event_links(source: SourceConfig, page: str) -> list[str]:
         path = parsed.path.lower()
         if parsed.netloc != host or url.rstrip("/") == source.url.rstrip("/"):
             continue
+        last_segment = path.rstrip("/").rsplit("/", 1)[-1]
+        if last_segment in {"eventi", "evento", "manifestazioni", "calendario"}:
+            continue
         if any(token in path for token in ("event", "manifest", "sagra", "festa", "calendario", "folclore")):
             links.append(url)
     return list(dict.fromkeys(links))[:80]
+
+
+def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> list[dict]:
+    events: list[dict] = []
+    anchors = re.findall(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", page, re.IGNORECASE | re.DOTALL)
+    for href, raw_label in anchors:
+        label = _clean_text(raw_label)
+        date_matches = list(DATE_TOKEN_PATTERN.finditer(label))
+        if not date_matches:
+            continue
+
+        start = _date_from_token(date_matches[0], now)
+        end = _date_from_token(date_matches[1], now) if len(date_matches) > 1 else start
+        if not start:
+            continue
+        if not end or end < start:
+            end = start.replace(hour=23, minute=59)
+        else:
+            end = end.replace(hour=23, minute=59)
+
+        title = label[date_matches[-1].end():].strip(" -–|")
+        if not title or len(title) < 4:
+            continue
+        if _is_index_or_navigation_page(source, urljoin(source.url, html.unescape(href)), title, label):
+            continue
+
+        url = urljoin(source.url, html.unescape(href)).split("#", 1)[0]
+        municipality = source.municipality or PROVINCE_CODES.get(source.province, source.region)
+        events.append(
+            {
+                "slug": _slug_from_title(f"{title}-{source.name}", url),
+                "title": title[:220],
+                "short_description": label[:300],
+                "description": label[:1000],
+                "starts_at": start,
+                "ends_at": end,
+                "all_day": True,
+                "is_free": True,
+                "source_name": source.name,
+                "source_url": url,
+                "official_url": url,
+                "latitude": source.latitude,
+                "longitude": source.longitude,
+                "published": True,
+                "category_name": "Eventi",
+                "municipality": municipality,
+                "province": source.province,
+                "region": source.region,
+            }
+        )
+    return events
+
+
+def _is_index_or_navigation_page(source: SourceConfig, url: str, title: str, content: str) -> bool:
+    normalized_title = re.sub(r"\s+", " ", title).casefold().strip()
+    source_name = source.name.casefold()
+    path = urlparse(url).path.lower().rstrip("/")
+    last_segment = path.rsplit("/", 1)[-1]
+
+    generic_titles = {
+        "eventi",
+        "manifestazioni",
+        "calendario eventi",
+        "provincia di teramo",
+    }
+    if normalized_title in generic_titles or normalized_title == source_name:
+        return True
+    if normalized_title.startswith("eventi ") and source_name in normalized_title:
+        return True
+    if last_segment in {"eventi", "evento", "manifestazioni", "calendario"}:
+        return True
+
+    navigation_markers = (
+        "0 eventi trovati",
+        "nessun altro risultato",
+        "come valuti questo servizio",
+        "note legali dichiarazione di accessibilità cookie policy",
+        "vai ai contenuti vai al footer",
+    )
+    marker_count = sum(1 for marker in navigation_markers if marker in content.casefold())
+    return marker_count >= 2
 
 
 def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> dict | None:
@@ -138,6 +262,8 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
     title = _clean_text(title_match.group(1) or title_match.group(2) or "")
     title = re.sub(r"\s+[–-]\s+(.+?)(?:Comune|Provincia).*$", "", title, flags=re.IGNORECASE).strip()
     content = _clean_text(page)
+    if _is_index_or_navigation_page(source, url, title, content):
+        return None
     dates = _parse_dates(content, now)
     if not title or not dates:
         return None
@@ -152,7 +278,7 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
     if municipality == "Lazio":
         municipality = PROVINCE_CODES.get(province, "Roma")
     return {
-        "slug": re.sub(r"[^a-z0-9]+", "-", url.rstrip("/").rsplit("/", 1)[-1].lower()).strip("-")[:210],
+        "slug": _slug_from_title(title, url),
         "title": title[:220],
         "short_description": content[:300],
         "description": content[:1000],
@@ -179,8 +305,11 @@ def fetch_source_events(source: SourceConfig, reference_now: datetime | None = N
     with httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": "FesteItalia/0.1 event importer"}) as client:
         response = client.get(source.url)
         response.raise_for_status()
-        links = _event_links(source, response.text)
         events_by_slug: dict[str, dict] = {}
+        for event in _parse_listing_events(source, response.text, now):
+            if event["ends_at"] >= now and event["starts_at"] <= window_end:
+                events_by_slug[event["slug"]] = event
+        links = _event_links(source, response.text)
         for url in links:
             try:
                 detail = client.get(url)

@@ -34,3 +34,20 @@ class EventSummary(EventBase):
 class EventListResponse(BaseModel):
     items: list[EventSummary]
     total: int
+
+
+class EventSourceCreate(BaseModel):
+    name: str
+    url: str
+    municipality: str | None = None
+    province: str | None = None
+    region: str = "Italia"
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class EventSourceSummary(EventSourceCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    enabled: bool = True

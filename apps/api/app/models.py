@@ -64,3 +64,18 @@ class Event(Base):
 
     category: Mapped[Category | None] = relationship(back_populates="events")
     location: Mapped[Location | None] = relationship(back_populates="events")
+
+
+class EventSource(Base):
+    __tablename__ = "event_sources"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(180), nullable=False)
+    url: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
+    municipality: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    province: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    region: Mapped[str] = mapped_column(String(120), default="Italia", nullable=False)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
