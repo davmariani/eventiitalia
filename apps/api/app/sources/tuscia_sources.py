@@ -75,6 +75,7 @@ LAZIO_PROVINCE_SOURCES = [
 
 UMBRIA_PROVINCE_SOURCES = [
     SourceConfig("Umbriatourism", "https://www.umbriatourism.it/it/eventi", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
+    SourceConfig("UmbriaEventi", "https://www.umbriaeventi.com/", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
     SourceConfig("Provincia di Perugia", "https://www.provincia.perugia.it/", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
     SourceConfig("Provincia di Terni", "https://www.provincia.terni.it/portal/comunicati-stampa", province="TR", region="Umbria", latitude=42.5636, longitude=12.6427),
 ]
@@ -112,6 +113,7 @@ MONTH_ALIASES = {
 }
 MONTH_TOKEN_PATTERN = "|".join(sorted(MONTH_ALIASES, key=len, reverse=True))
 DATE_TOKEN_PATTERN = re.compile(rf"(?P<day>\d{{1,2}})\s+(?P<month>{MONTH_TOKEN_PATTERN})(?:\s+(?P<year>\d{{4}}))?", re.IGNORECASE)
+NUMERIC_DATE_PATTERN = re.compile(r"(?P<day>\d{1,2})/(?P<month>\d{1,2})/(?P<year>\d{4})")
 
 
 def _clean_text(value: str) -> str:
@@ -149,6 +151,19 @@ def _date_from_token(match: re.Match[str], reference_now: datetime) -> datetime 
         return None
 
 
+def _date_from_numeric_token(match: re.Match[str]) -> datetime | None:
+    try:
+        return datetime(
+            int(match.group("year")),
+            int(match.group("month")),
+            int(match.group("day")),
+            12,
+            tzinfo=timezone.utc,
+        )
+    except ValueError:
+        return None
+
+
 def _slug_from_title(title: str, url: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
     if not slug:
@@ -180,11 +195,15 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
     for href, raw_label in anchors:
         label = _clean_text(raw_label)
         date_matches = list(DATE_TOKEN_PATTERN.finditer(label))
+        date_matches.extend(NUMERIC_DATE_PATTERN.finditer(label))
+        date_matches.sort(key=lambda match: match.start())
         if not date_matches:
             continue
 
-        start = _date_from_token(date_matches[0], now)
-        end = _date_from_token(date_matches[1], now) if len(date_matches) > 1 else start
+        start = _date_from_numeric_token(date_matches[0]) if "/" in date_matches[0].group(0) else _date_from_token(date_matches[0], now)
+        end = None
+        if len(date_matches) > 1:
+            end = _date_from_numeric_token(date_matches[1]) if "/" in date_matches[1].group(0) else _date_from_token(date_matches[1], now)
         if not start:
             continue
         if not end or end < start:
@@ -192,14 +211,23 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
         else:
             end = end.replace(hour=23, minute=59)
 
-        title = label[date_matches[-1].end():].strip(" -–|")
+        before_date = label[:date_matches[0].start()].strip(" -–|")
+        after_date = label[date_matches[-1].end():].strip(" -–|")
+        title = before_date if len(before_date) >= 4 else after_date
+        location_match = re.search(r"([A-ZÀ-Ü][A-Za-zÀ-ÿ' -]{2,})\s*\(([A-Z]{2})\)", after_date)
+        municipality = source.municipality or PROVINCE_CODES.get(source.province, source.region)
+        province = source.province
+        if location_match:
+            municipality = location_match.group(1).strip()
+            province = location_match.group(2).strip()
+            if title == after_date:
+                title = after_date[:location_match.start()].strip(" -–|") or title
         if not title or len(title) < 4:
             continue
         if _is_index_or_navigation_page(source, urljoin(source.url, html.unescape(href)), title, label):
             continue
 
         url = urljoin(source.url, html.unescape(href)).split("#", 1)[0]
-        municipality = source.municipality or PROVINCE_CODES.get(source.province, source.region)
         events.append(
             {
                 "slug": _slug_from_title(f"{title}-{source.name}", url),
@@ -218,7 +246,7 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
                 "published": True,
                 "category_name": "Eventi",
                 "municipality": municipality,
-                "province": source.province,
+                "province": province,
                 "region": source.region,
             }
         )
