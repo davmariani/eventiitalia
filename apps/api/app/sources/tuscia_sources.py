@@ -23,6 +23,7 @@ class SourceConfig:
 
 
 SOURCES = [
+    SourceConfig("Eventi e Sagre", "https://www.eventiesagre.it/Eventi_Sagre/elenco.html", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
     SourceConfig("VisitLazio", "https://www.visitlazio.com/eventi/", province="RM", region="Lazio"),
     SourceConfig("Roma Capitale", "https://www.comune.roma.it/web/it/eventi.page", "Roma", province="RM", latitude=41.9028, longitude=12.4964),
     SourceConfig("Provincia di Viterbo", "https://www.provincia.viterbo.it/home/245-notizie_dallarea_vasta/625-eventi_folkloristici_culturali_religiosi_enogastronomici.html"),
@@ -93,6 +94,28 @@ PROVINCE_CODES = {
     "FR": "Frosinone",
     "LT": "Latina",
     "RI": "Rieti",
+}
+ITALIAN_REGIONS = {
+    "Abruzzo",
+    "Basilicata",
+    "Calabria",
+    "Campania",
+    "Emilia Romagna",
+    "Friuli Venezia Giulia",
+    "Lazio",
+    "Liguria",
+    "Lombardia",
+    "Marche",
+    "Molise",
+    "Piemonte",
+    "Puglia",
+    "Sardegna",
+    "Sicilia",
+    "Toscana",
+    "Trentino Alto Adige",
+    "Umbria",
+    "Valle d'Aosta",
+    "Veneto",
 }
 
 MONTH_ALIASES = {
@@ -217,9 +240,15 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
         location_match = re.search(r"([A-ZÀ-Ü][A-Za-zÀ-ÿ' -]{2,})\s*\(([A-Z]{2})\)", after_date)
         municipality = source.municipality or PROVINCE_CODES.get(source.province, source.region)
         province = source.province
+        region = source.region
         if location_match:
             municipality = location_match.group(1).strip()
             province = location_match.group(2).strip()
+            before_location = after_date[:location_match.start()].strip()
+            for candidate_region in sorted(ITALIAN_REGIONS, key=len, reverse=True):
+                if re.search(rf"(?:^|\s){re.escape(candidate_region)}$", before_location, re.IGNORECASE):
+                    region = candidate_region
+                    break
             if title == after_date:
                 title = after_date[:location_match.start()].strip(" -–|") or title
         if not title or len(title) < 4:
@@ -247,7 +276,7 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
                 "category_name": "Eventi",
                 "municipality": municipality,
                 "province": province,
-                "region": source.region,
+                "region": region,
             }
         )
     return events
