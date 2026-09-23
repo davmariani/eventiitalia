@@ -88,6 +88,48 @@ ABRUZZO_PROVINCE_SOURCES = [
     SourceConfig("Provincia di Teramo", "https://provincia.teramo.it/vivere-la-provincia/eventi/", province="TE", region="Abruzzo", latitude=42.6589, longitude=13.7044),
 ]
 
+SOURCES = [
+    SourceConfig("Sagre Cornelcaba", "https://sagre.cornelcaba.com/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Eventi e Sagre", "https://www.eventiesagre.it/Eventi_Sagre/elenco.html", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Sagr.it", "https://sagr.it/eventi", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Sagre in Italia", "https://sagreinitalia.com/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Trova Sagre", "https://trovasagre.com/sagre", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Festorum", "https://festorum.it/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Piemonte Italia", "https://piemonteitalia.eu/it/eventi", province="TO", region="Piemonte", latitude=45.0703, longitude=7.6869),
+    SourceConfig("LoveVDA", "https://www.lovevda.it/it/eventi/ricerca-generale", province="AO", region="Valle d'Aosta", latitude=45.737, longitude=7.32),
+    SourceConfig("In Lombardia", "https://www.in-lombardia.it/eventi", province="MI", region="Lombardia", latitude=45.4642, longitude=9.19),
+    SourceConfig("Visit Trentino", "https://www.visittrentino.info/it/guida/cosa-fare/eventi", province="TN", region="Trentino-Alto Adige", latitude=46.0664, longitude=11.1258),
+    SourceConfig("Suedtirol", "https://www.suedtirol.info/it/it/esperienze-eventi/eventi-alto-adige.p62", province="BZ", region="Trentino-Alto Adige", latitude=46.4983, longitude=11.3548),
+    SourceConfig("Veneto", "https://www.veneto.eu/it/eventi/", province="VE", region="Veneto", latitude=45.4408, longitude=12.3155),
+    SourceConfig("Turismo FVG", "https://www.turismofvg.it/events", province="UD", region="Friuli-Venezia Giulia", latitude=46.0711, longitude=13.2346),
+    SourceConfig("La Mia Liguria", "https://lamialiguria.it/vivi-la-liguria/liguria-eventi/", province="GE", region="Liguria", latitude=44.4056, longitude=8.9463),
+    SourceConfig("Emilia Romagna Turismo", "https://emiliaromagnaturismo.it/", province="BO", region="Emilia-Romagna", latitude=44.4949, longitude=11.3426),
+    SourceConfig("Visit Tuscany", "https://www.visittuscany.com/it/eventi", province="FI", region="Toscana", latitude=43.7696, longitude=11.2558),
+    SourceConfig("Umbriatourism", "https://www.umbriatourism.it/it/eventi", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
+    SourceConfig("Eventi Marche", "https://eventi.turismo.marche.it/it-it/", province="AN", region="Marche", latitude=43.6158, longitude=13.5189),
+    SourceConfig("Visit Lazio", "https://www.visitlazio.com/eventi/", province="RM", region="Lazio", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Abruzzo Turismo", "https://www.abruzzoturismo.it/it/eventi-artistici-e-culturali", province="AQ", region="Abruzzo", latitude=42.3498, longitude=13.3995),
+    SourceConfig("Visit Molise", "https://www.visitmolise.eu/", province="CB", region="Molise", latitude=41.5603, longitude=14.6627),
+    SourceConfig("Regione Campania", "https://www.regione.campania.it/regione-informa/eventi", province="NA", region="Campania", latitude=40.8518, longitude=14.2681),
+    SourceConfig("Viaggiare in Puglia", "https://viaggiareinpuglia.it/it/eventi-attivita", province="BA", region="Puglia", latitude=41.1171, longitude=16.8719),
+    SourceConfig("Basilicata Turistica", "https://www.basilicataturistica.it/eventi/", province="PZ", region="Basilicata", latitude=40.6404, longitude=15.8056),
+    SourceConfig("Calabria Straordinaria", "https://calabriastraordinaria.it/", province="CZ", region="Calabria", latitude=38.9106, longitude=16.5877),
+    SourceConfig("Visit Sicily", "https://www.visitsicily.info/evento-new/?post_types=evento-new", province="PA", region="Sicilia", latitude=38.1157, longitude=13.3615),
+    SourceConfig("Sardegna Turismo", "https://www.sardegnaturismo.it/it/eventi", province="CA", region="Sardegna", latitude=39.2238, longitude=9.1217),
+    SourceConfig("Ministero Cultura", "https://cultura.gov.it/eventi/cerca-evento", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("FAI", "https://fondoambiente.it/eventi/", province="MI", region="Italia", latitude=45.4642, longitude=9.19),
+    SourceConfig("Ticketmaster Discovery API", "https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Arte.it", "https://www.arte.it/calendario-arte/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Italia.it", "https://www.italia.it/it", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("UmbriaEventi", "https://www.umbriaeventi.com/", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
+    SourceConfig("EventiOK", "https://eventiok.it/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+]
+TUSCANY_SOURCES = []
+TUSCANY_PROVINCE_SOURCES = []
+LAZIO_PROVINCE_SOURCES = []
+UMBRIA_PROVINCE_SOURCES = []
+ABRUZZO_PROVINCE_SOURCES = []
+
 PROVINCE_CODES = {
     "RM": "Roma",
     "VT": "Viterbo",

@@ -21,6 +21,8 @@ class EventBase(BaseModel):
     official_url: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    distance_km: float | None = None
+    location_precision: str | None = None
     published: bool = False
 
 
@@ -34,6 +36,17 @@ class EventSummary(EventBase):
 class EventListResponse(BaseModel):
     items: list[EventSummary]
     total: int
+    category_counts: dict[str, int] = {}
+
+
+class GeoPlaceSummary(BaseModel):
+    name: str
+    municipality: str
+    province: str
+    region: str
+    latitude: float
+    longitude: float
+    istat_code: str
 
 
 class EventSourceCreate(BaseModel):

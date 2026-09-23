@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,11 +7,53 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.geo_places import search_places
 from app.models import Event, EventSource
 from app.refresh import get_event_window, refresh_demo_data
-from app.schemas import EventListResponse, EventSourceCreate, EventSourceSummary, EventSummary
+from app.schemas import EventListResponse, EventSourceCreate, EventSourceSummary, EventSummary, GeoPlaceSummary
 
 router = APIRouter(prefix="/api", tags=["events"])
+ALLOWED_RADII_KM = {10, 25, 50, 75, 100, 150, 200, 300, 500}
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    earth_radius_km = 6371.0088
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    return earth_radius_km * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def map_event(item: Event, distance_km: float | None = None) -> EventSummary:
+    location_precision = None
+    if item.latitude is not None and item.longitude is not None:
+        location_precision = "municipality" if item.location else "source"
+    return EventSummary(
+        id=item.id,
+        slug=item.slug,
+        title=item.title,
+        short_description=item.short_description,
+        description=item.description,
+        starts_at=item.starts_at,
+        ends_at=item.ends_at,
+        is_free=item.is_free,
+        price_min=item.price_min,
+        price_max=item.price_max,
+        source_name=item.source_name,
+        source_url=item.source_url,
+        official_url=item.official_url,
+        latitude=item.latitude,
+        longitude=item.longitude,
+        distance_km=round(distance_km, 1) if distance_km is not None else None,
+        location_precision=location_precision,
+        published=item.published,
+        category_name=item.category.name if item.category else None,
+        municipality=item.location.municipality if item.location else None,
+        province=item.location.province if item.location else None,
+        region=item.location.region if item.location else None,
+    )
 
 
 def demo_events() -> list[EventSummary]:
@@ -30,6 +73,8 @@ def demo_events() -> list[EventSummary]:
             official_url="https://example.com/evento",
             latitude=42.345,
             longitude=12.234,
+            distance_km=None,
+            location_precision="municipality",
             published=True,
             category_name="Sagre",
             municipality="Vallerano",
@@ -50,6 +95,8 @@ def demo_events() -> list[EventSummary]:
             official_url="https://example.com/evento-2",
             latitude=41.747,
             longitude=12.646,
+            distance_km=None,
+            location_precision="municipality",
             published=True,
             category_name="Mercatini",
             municipality="Castel Gandolfo",
@@ -108,12 +155,49 @@ def create_source(payload: EventSourceCreate, db: Session = Depends(get_db)) -> 
     return source
 
 
+@router.get("/locations/search", response_model=list[GeoPlaceSummary])
+def search_locations(q: str = Query(..., min_length=2), limit: int = Query(8, ge=1, le=20)) -> list[GeoPlaceSummary]:
+    return [
+        GeoPlaceSummary(
+            name=place.name,
+            municipality=place.municipality,
+            province=place.province,
+            region=place.region,
+            latitude=place.latitude,
+            longitude=place.longitude,
+            istat_code=place.istat_code,
+        )
+        for place in search_places(q, limit)
+    ]
+
+
 @router.get("/events", response_model=EventListResponse)
 def list_events(
     limit: int = Query(20, ge=1, le=100),
+    latitude: float | None = Query(None, ge=-90, le=90),
+    longitude: float | None = Query(None, ge=-180, le=180),
+    radius_km: int | None = Query(None),
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    categories: str | None = None,
+    sort: str = Query("date", pattern="^(date|distance_asc|distance_desc)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> EventListResponse:
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(status_code=400, detail="Latitudine e longitudine devono essere inviate insieme.")
+    if radius_km is not None and radius_km not in ALLOWED_RADII_KM:
+        raise HTTPException(status_code=400, detail="Raggio non consentito.")
+    if sort.startswith("distance") and (latitude is None or longitude is None):
+        raise HTTPException(status_code=400, detail="Ordinamento per distanza disponibile solo con una località.")
+
     start_at, end_at = get_event_window()
+    if date_from:
+        start_at = date_from
+    if date_to:
+        end_at = date_to
+    requested_categories = {item.strip().casefold() for item in categories.split(",")} if categories else set()
     try:
         items = (
             db.query(Event)
@@ -125,7 +209,7 @@ def list_events(
                 )
             )
             .order_by(Event.starts_at.asc())
-            .limit(limit)
+            .limit(max(limit, page * page_size))
             .all()
         )
     except SQLAlchemyError:
@@ -135,30 +219,34 @@ def list_events(
         fallback = demo_events()[:limit]
         return EventListResponse(items=fallback, total=len(fallback))
 
-    mapped = [
-        EventSummary(
-            id=item.id,
-            slug=item.slug,
-            title=item.title,
-            short_description=item.short_description,
-            description=item.description,
-            starts_at=item.starts_at,
-            ends_at=item.ends_at,
-            is_free=item.is_free,
-            price_min=item.price_min,
-            price_max=item.price_max,
-            source_name=item.source_name,
-            source_url=item.source_url,
-            official_url=item.official_url,
-            latitude=item.latitude,
-            longitude=item.longitude,
-            published=item.published,
-            category_name=item.category.name if item.category else None,
-            municipality=item.location.municipality if item.location else None,
-            province=item.location.province if item.location else None,
-            region=item.location.region if item.location else None,
-        )
-        for item in items
-    ]
+    filtered: list[tuple[Event, float | None]] = []
+    for item in items:
+        category_name = item.category.name if item.category else None
+        if requested_categories and (category_name or "").casefold() not in requested_categories:
+            continue
+        distance = None
+        if latitude is not None and longitude is not None:
+            if item.latitude is None or item.longitude is None:
+                continue
+            distance = haversine_km(latitude, longitude, item.latitude, item.longitude)
+            if radius_km is not None and distance > radius_km:
+                continue
+        filtered.append((item, distance))
 
-    return EventListResponse(items=mapped, total=len(mapped))
+    category_counts: dict[str, int] = {}
+    for item, _distance in filtered:
+        name = item.category.name if item.category else "Evento"
+        category_counts[name] = category_counts.get(name, 0) + 1
+
+    if sort == "distance_asc":
+        filtered.sort(key=lambda pair: pair[1] if pair[1] is not None else float("inf"))
+    elif sort == "distance_desc":
+        filtered.sort(key=lambda pair: pair[1] if pair[1] is not None else -1, reverse=True)
+    else:
+        filtered.sort(key=lambda pair: pair[0].starts_at or datetime.max.replace(tzinfo=timezone.utc))
+
+    start = (page - 1) * page_size
+    end = start + page_size
+    mapped = [map_event(item, distance) for item, distance in filtered[start:end]]
+
+    return EventListResponse(items=mapped, total=len(filtered), category_counts=category_counts)

@@ -6,9 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.geocoding import Geocoder, cached_location_coordinates
-from app.models import Category, Event, EventSource, Location
-from app.sources.comune_viterbo import fetch_comune_viterbo_events
-from app.sources.tuscia_sources import SourceConfig, fetch_all_abruzzo_events, fetch_all_tuscany_events, fetch_all_tuscia_events, fetch_all_umbria_events, fetch_source_events
+from app.models import Category, Event, Location
+from app.sources.tuscia_sources import fetch_all_abruzzo_events, fetch_all_tuscany_events, fetch_all_tuscia_events, fetch_all_umbria_events
 
 
 DEMO_EVENTS = [
@@ -261,10 +260,6 @@ def refresh_demo_data(session: Session) -> int:
     start_at, end_at = get_event_window()
     source_events: list[dict] = []
     try:
-        source_events.extend(fetch_comune_viterbo_events(start_at))
-    except Exception:
-        pass
-    try:
         source_events.extend(fetch_all_tuscia_events(start_at))
     except Exception:
         pass
@@ -280,24 +275,6 @@ def refresh_demo_data(session: Session) -> int:
         source_events.extend(fetch_all_abruzzo_events(start_at))
     except Exception:
         pass
-    for source in session.execute(select(EventSource).where(EventSource.enabled.is_(True))).scalars():
-        try:
-            source_events.extend(
-                fetch_source_events(
-                    SourceConfig(
-                        name=source.name,
-                        url=source.url,
-                        municipality=source.municipality,
-                        province=source.province or "",
-                        region=source.region,
-                        latitude=source.latitude,
-                        longitude=source.longitude,
-                    ),
-                    start_at,
-                )
-            )
-        except Exception:
-            continue
 
     raw_payloads = source_events or _build_demo_events(start_at)
     payloads = list({payload["slug"]: payload for payload in raw_payloads}.values())
