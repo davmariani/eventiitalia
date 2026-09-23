@@ -5,6 +5,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database import Base
+from app.geocoding import Geocoder, cached_location_coordinates
 from app.models import Category, Event, EventSource, Location
 from app.sources.comune_viterbo import fetch_comune_viterbo_events
 from app.sources.tuscia_sources import SourceConfig, fetch_all_abruzzo_events, fetch_all_tuscany_events, fetch_all_tuscia_events, fetch_all_umbria_events, fetch_source_events
@@ -303,6 +304,7 @@ def refresh_demo_data(session: Session) -> int:
 
     categories: dict[str, Category] = {}
     locations: dict[tuple[str, str, str], Location] = {}
+    geocoder = Geocoder()
     created = 0
 
     for payload in payloads:
@@ -311,6 +313,24 @@ def refresh_demo_data(session: Session) -> int:
         categories[category_name] = category
 
         key = (payload["municipality"], payload["province"], payload["region"])
+        existing_location = (
+            locations.get(key)
+            or session.execute(
+                select(Location).where(
+                    Location.municipality == payload["municipality"],
+                    Location.province == payload["province"],
+                    Location.region == payload["region"],
+                ).limit(1)
+            ).scalar_one_or_none()
+        )
+        coordinates = geocoder.lookup(
+            payload["municipality"],
+            payload["province"],
+            payload["region"],
+        ) or cached_location_coordinates(existing_location)
+        if coordinates:
+            payload["latitude"], payload["longitude"] = coordinates
+
         location = locations.get(key) or _ensure_location(
             session,
             payload["municipality"],
@@ -319,6 +339,10 @@ def refresh_demo_data(session: Session) -> int:
             payload["latitude"],
             payload["longitude"],
         )
+        if coordinates and (location.latitude != coordinates[0] or location.longitude != coordinates[1]):
+            location.latitude = coordinates[0]
+            location.longitude = coordinates[1]
+            session.flush()
         locations[key] = location
 
         event = Event(
