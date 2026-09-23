@@ -123,6 +123,8 @@ SOURCES = [
     SourceConfig("Italia.it", "https://www.italia.it/it", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
     SourceConfig("UmbriaEventi", "https://www.umbriaeventi.com/", province="PG", region="Umbria", latitude=43.1107, longitude=12.3908),
     SourceConfig("EventiOK", "https://eventiok.it/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("Eventbrite", "https://www.eventbrite.it/", province="RM", region="Italia", latitude=41.9028, longitude=12.4964),
+    SourceConfig("DICE Roma", "https://dice.fm/browse/roma-5d68eb080c4e18d46783919d?lng=it", "Roma", province="RM", region="Lazio", latitude=41.9028, longitude=12.4964),
 ]
 TUSCANY_SOURCES = []
 TUSCANY_PROVINCE_SOURCES = []
