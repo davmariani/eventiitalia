@@ -4,7 +4,7 @@ import html
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote_plus, urljoin, urlparse
 
 import httpx
 
@@ -196,6 +196,58 @@ def _clean_text(value: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(value)).strip()
 
 
+def _strip_noise(value: str) -> str:
+    value = re.sub(r"https?://\S+", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\b(?:Home|Accedi|Utente|Password|Registrati|Mappa|Pubblica un evento|add_circle|expand_more|search person|share favo)\b", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"Attenzione\s*:.*$", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"\b(?:eventiesagre\.it|Sagr\.it)\b", " ", value, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", value).strip(" -–|")
+
+
+def _title_from_url(url: str) -> str:
+    segment = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
+    segment = re.sub(r"\.(?:html?|php|aspx?)$", "", segment, flags=re.IGNORECASE)
+    segment = re.sub(r"^\d+[_-]", "", segment)
+    title = unquote_plus(segment.replace("_", " ").replace("-", " "))
+    title = re.sub(r"^\d{1,2}\s+(?:%s)\s+\d{4}\s+" % MONTH_TOKEN_PATTERN, "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^\d{1,2}\s+(?:%s)\s+" % MONTH_TOKEN_PATTERN, "", title, flags=re.IGNORECASE)
+    return _strip_noise(title)
+
+
+def _clean_event_title(title: str, url: str, municipality: str | None = None) -> str:
+    cleaned = _strip_noise(title)
+    cleaned = re.sub(r"\s+Dal\s+\d{1,2}/\d{1,2}/\d{4}.*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+dal\s+\d{1,2}/\d{1,2}/\d{4}.*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+Al\s+\d{1,2}/\d{1,2}/\d{4}.*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+\|\s*$", "", cleaned).strip(" -–|")
+    if "http" in title.casefold() or len(cleaned) < 5 or len(cleaned) > 160:
+        from_url = _title_from_url(url)
+        if len(from_url) >= 5:
+            cleaned = from_url
+    if municipality and cleaned.casefold() in {municipality.casefold(), f"{municipality} eventi".casefold()}:
+        from_url = _title_from_url(url)
+        if len(from_url) >= 5:
+            cleaned = from_url
+    return cleaned[:220]
+
+
+def _clean_event_description(text: str, title: str, municipality: str | None = None, source_name: str | None = None) -> str:
+    cleaned = _strip_noise(text)
+    cleaned = re.sub(r"\b\d{1,2}\s+(?:%s)\s+\d{4}\b" % MONTH_TOKEN_PATTERN, " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bDal\s+\d{1,2}/\d{1,2}/\d{4}\s+Al\s+\d{1,2}/\d{1,2}/\d{4}\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–|")
+
+    title_prefix = title[:80].casefold()
+    if cleaned.casefold().startswith(title_prefix):
+        cleaned = cleaned[len(title[:80]):].strip(" -–|")
+
+    if len(cleaned) < 35 or "http" in cleaned.casefold():
+        place = f" a {municipality}" if municipality else ""
+        source = f" da {source_name}" if source_name else " da una fonte pubblica"
+        cleaned = f"Evento importato{source}{place}. Apri la fonte ufficiale per dettagli aggiornati."
+    return cleaned[:500]
+
+
 def _parse_dates(text: str, reference_now: datetime) -> tuple[datetime, datetime] | None:
     match = DATE_PATTERN.search(text)
     if not match:
@@ -321,9 +373,11 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
     events: list[dict] = []
     anchors = re.findall(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", page, re.IGNORECASE | re.DOTALL)
     for href, raw_label in anchors:
+        url = urljoin(source.url, html.unescape(href)).split("#", 1)[0]
         label = _clean_text(raw_label)
-        date_matches = list(DATE_TOKEN_PATTERN.finditer(label))
-        date_matches.extend(NUMERIC_DATE_PATTERN.finditer(label))
+        date_text = f"{label} {unquote_plus(url)}"
+        date_matches = list(DATE_TOKEN_PATTERN.finditer(date_text))
+        date_matches.extend(NUMERIC_DATE_PATTERN.finditer(date_text))
         date_matches.sort(key=lambda match: match.start())
         if not date_matches:
             continue
@@ -339,8 +393,9 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
         else:
             end = end.replace(hour=23, minute=59)
 
-        before_date = label[:date_matches[0].start()].strip(" -–|")
-        after_date = label[date_matches[-1].end():].strip(" -–|")
+        date_match_in_label = date_matches[0].start() < len(label)
+        before_date = label[:date_matches[0].start()].strip(" -–|") if date_match_in_label else label
+        after_date = label[date_matches[-1].end():].strip(" -–|") if date_match_in_label else _title_from_url(url)
         title = before_date if len(before_date) >= 4 else after_date
         location_match = re.search(r"([A-ZÀ-Ü][A-Za-zÀ-ÿ' -]{2,})\s*\(([A-Z]{2})\)", after_date)
         municipality = source.municipality or PROVINCE_CODES.get(source.province, source.region)
@@ -375,18 +430,19 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
             municipality = title_municipality
             province = title_province
             region = title_region
+        title = _clean_event_title(title, url, municipality)
+        description = _clean_event_description(label, title, municipality, source.name)
         if not title or len(title) < 4:
             continue
-        if _is_index_or_navigation_page(source, urljoin(source.url, html.unescape(href)), title, label):
+        if _is_index_or_navigation_page(source, url, title, label):
             continue
 
-        url = urljoin(source.url, html.unescape(href)).split("#", 1)[0]
         events.append(
             {
                 "slug": _slug_from_title(f"{title}-{source.name}", url),
                 "title": title[:220],
-                "short_description": label[:300],
-                "description": label[:1000],
+                "short_description": description[:300],
+                "description": description,
                 "starts_at": start,
                 "ends_at": end,
                 "all_day": True,
@@ -473,11 +529,13 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
         region = title_region
     if municipality == "Lazio":
         municipality = PROVINCE_CODES.get(province, "Roma")
+    title = _clean_event_title(title, url, municipality)
+    description = _clean_event_description(content, title, municipality, source.name)
     return {
         "slug": _slug_from_title(title, url),
         "title": title[:220],
-        "short_description": content[:300],
-        "description": content[:1000],
+        "short_description": description[:300],
+        "description": description,
         "starts_at": start,
         "ends_at": end,
         "all_day": True,

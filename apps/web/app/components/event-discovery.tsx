@@ -55,6 +55,44 @@ const weekendRange = () => {
 };
 
 const formatPlace = (place: PlaceItem) => place.isCurrentLocation ? "Posizione attuale" : `${place.municipality} (${place.province}), ${place.region}`;
+const stripEventNoise = (value: string) => value
+  .replace(/https?:\/\/\S+/gi, " ")
+  .replace(/\b(Home|Accedi|Utente|Password|Registrati|Mappa|Pubblica un evento|add_circle|expand_more|search person|share favo)\b/gi, " ")
+  .replace(/Attenzione\s*:.*$/i, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const titleFromUrl = (url?: string) => {
+  if (!url) return "";
+  try {
+    const last = new URL(url).pathname.split("/").filter(Boolean).at(-1) ?? "";
+    return decodeURIComponent(last)
+      .replace(/\.(html?|php|aspx?)$/i, "")
+      .replace(/^\d+[_-]/, "")
+      .replace(/[+_-]+/g, " ")
+      .replace(/^\d{1,2}\s+\w+\s+\d{4}\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return "";
+  }
+};
+
+const cleanEventTitle = (title: string, url?: string) => {
+  const cleaned = stripEventNoise(title).replace(/\s+Dal\s+\d{1,2}\/\d{1,2}\/\d{4}.*$/i, "").trim();
+  if (title.includes("http") || cleaned.length > 150 || cleaned.length < 5) {
+    return titleFromUrl(url) || cleaned || "Evento";
+  }
+  return cleaned;
+};
+
+const cleanEventDescription = (description: string | undefined, title: string, location: string) => {
+  const cleaned = stripEventNoise(description ?? "");
+  if (!cleaned || cleaned.includes("http") || cleaned.length < 35 || cleaned.toLowerCase().startsWith(title.slice(0, 40).toLowerCase())) {
+    return `Evento a ${location}. Apri la fonte ufficiale per dettagli aggiornati.`;
+  }
+  return cleaned.slice(0, 260);
+};
 
 const demoEvents: EventItem[] = [
   { title: "Sagra della Castagna", type: "Sagre", region: "Lazio", location: "Vallerano, VT", date: "26 settembre", dates: ["2026-09-26"], image: "image-castagna", description: "Degustazioni, mercatini e tradizioni locali.", latitude: 42.345, longitude: 12.234, color: "#d95d39" },
@@ -186,15 +224,17 @@ export default function EventDiscovery() {
           const end = item.ends_at ? new Date(item.ends_at) : start;
           const dates: string[] = [];
           for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) dates.push(cursor.toISOString().slice(0, 10));
+          const location = [item.municipality, item.province].filter(Boolean).join(", ");
+          const title = cleanEventTitle(item.title, item.official_url ?? item.source_url);
           return {
-            title: item.title,
+            title,
             type: item.category_name ?? "Eventi",
             region: item.region ?? "Italia",
-            location: [item.municipality, item.province].filter(Boolean).join(", "),
+            location,
             date: start.toLocaleDateString("it-IT", { day: "numeric", month: "long" }),
             dates,
             image: "image-mostra",
-            description: item.short_description ?? item.description ?? "Evento importato da una fonte pubblica.",
+            description: cleanEventDescription(item.short_description ?? item.description, title, location || "Italia"),
             latitude: item.latitude as number,
             longitude: item.longitude as number,
             color: "#d95d39",

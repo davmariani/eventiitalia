@@ -40,6 +40,8 @@ def test_eventiesagre_title_location_with_province_and_region():
     assert events[0]["municipality"] == "Cecima"
     assert events[0]["province"] == "PV"
     assert events[0]["region"] == "Lombardia"
+    assert "http" not in events[0]["title"]
+    assert "eventiesagre.it" not in events[0]["title"]
 
 
 def test_sagrit_title_location_overrides_navigation_text():
@@ -63,3 +65,21 @@ def test_sagrit_title_location_overrides_navigation_text():
         ("Serra San Bruno", "VV", "Calabria"),
         ("Lignano Sabbiadoro", "UD", "Friuli Venezia Giulia"),
     ]
+
+
+def test_eventiesagre_listing_discards_raw_urls_from_title_and_description():
+    source = SourceConfig("Eventi e Sagre", "https://www.eventiesagre.it/Eventi_Sagre/elenco.html", province="RM", region="Italia")
+    html = """
+    <a href="/Eventi_Sagre/21195547_26+Settembre+2026+Trekking+E+Foliage+Al+Ponte+Tibetano+Di+Cecima+Edizione+Mattina.html">
+      Lombardia Cecima (PV)
+      https://www.eventiesagre.it/Eventi_Sagre/21195547_26+Settembre+2026+Trekking+E+Foliage+Al+Ponte+Tibetano+Di+Cecima+Edizione+Mattina.html
+      Attenzione:abbiamo migliorato il percorso che per questa data
+    </a>
+    """
+
+    events = _parse_listing_events(source, html, datetime(2026, 9, 23, tzinfo=timezone.utc))
+
+    assert events
+    assert events[0]["title"] == "Trekking E Foliage Al Ponte Tibetano Di Cecima Edizione Mattina"
+    assert "http" not in events[0]["short_description"]
+    assert "Attenzione" not in events[0]["short_description"]
