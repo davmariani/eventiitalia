@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import Base
 from app.models import Category, Event, Location
 from app.sources.comune_viterbo import fetch_comune_viterbo_events
-from app.sources.tuscia_sources import fetch_all_tuscany_events, fetch_all_tuscia_events, fetch_all_umbria_events
+from app.sources.tuscia_sources import fetch_all_abruzzo_events, fetch_all_tuscany_events, fetch_all_tuscia_events, fetch_all_umbria_events
 
 
 DEMO_EVENTS = [
@@ -273,6 +273,10 @@ def refresh_demo_data(session: Session) -> int:
         pass
     try:
         source_events.extend(fetch_all_umbria_events(start_at))
+    except Exception:
+        pass
+    try:
+        source_events.extend(fetch_all_abruzzo_events(start_at))
     except Exception:
         pass
 

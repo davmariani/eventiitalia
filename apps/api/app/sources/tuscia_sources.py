@@ -78,6 +78,13 @@ UMBRIA_PROVINCE_SOURCES = [
     SourceConfig("Provincia di Terni", "https://www.provincia.terni.it/portal/comunicati-stampa", province="TR", region="Umbria", latitude=42.5636, longitude=12.6427),
 ]
 
+ABRUZZO_PROVINCE_SOURCES = [
+    SourceConfig("Provincia dell'Aquila", "https://www.provincia.laquila.it/", province="AQ", region="Abruzzo", latitude=42.3498, longitude=13.3995),
+    SourceConfig("Provincia di Chieti", "https://www.provincia.chieti.it/flex/cm/pages/ServeBLOB.php/L/IT/IDPagina/466", province="CH", region="Abruzzo", latitude=42.3512, longitude=14.1676),
+    SourceConfig("Provincia di Pescara", "https://www.provincia.pescara.it/it/news-category/151265", province="PE", region="Abruzzo", latitude=42.4618, longitude=14.2161),
+    SourceConfig("Provincia di Teramo", "https://provincia.teramo.it/vivere-la-provincia/eventi/", province="TE", region="Abruzzo", latitude=42.6589, longitude=13.7044),
+]
+
 PROVINCE_CODES = {
     "RM": "Roma",
     "VT": "Viterbo",
@@ -209,6 +216,16 @@ def fetch_all_tuscany_events(reference_now: datetime | None = None) -> list[dict
 def fetch_all_umbria_events(reference_now: datetime | None = None) -> list[dict]:
     events: list[dict] = []
     for source in UMBRIA_PROVINCE_SOURCES:
+        try:
+            events.extend(fetch_source_events(source, reference_now))
+        except (httpx.HTTPError, ValueError):
+            continue
+    return list({event["slug"]: event for event in events}.values())
+
+
+def fetch_all_abruzzo_events(reference_now: datetime | None = None) -> list[dict]:
+    events: list[dict] = []
+    for source in ABRUZZO_PROVINCE_SOURCES:
         try:
             events.extend(fetch_source_events(source, reference_now))
         except (httpx.HTTPError, ValueError):
