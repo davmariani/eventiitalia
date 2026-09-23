@@ -181,6 +181,13 @@ MONTH_ALIASES = {
 MONTH_TOKEN_PATTERN = "|".join(sorted(MONTH_ALIASES, key=len, reverse=True))
 DATE_TOKEN_PATTERN = re.compile(rf"(?P<day>\d{{1,2}})\s+(?P<month>{MONTH_TOKEN_PATTERN})(?:\s+(?P<year>\d{{4}}))?", re.IGNORECASE)
 NUMERIC_DATE_PATTERN = re.compile(r"(?P<day>\d{1,2})/(?P<month>\d{1,2})/(?P<year>\d{4})")
+PLACE_HINTS = {
+    "Cecima": ("PV", "Lombardia"),
+    "Tornareccio": ("CH", "Abruzzo"),
+    "Lavello": ("PZ", "Basilicata"),
+    "Serra San Bruno": ("VV", "Calabria"),
+    "Lignano Sabbiadoro": ("UD", "Friuli Venezia Giulia"),
+}
 
 
 def _clean_text(value: str) -> str:
@@ -275,6 +282,41 @@ def _extract_region_location(text: str, fallback_region: str, fallback_province:
     return municipality or None, province, region, match.start()
 
 
+def _extract_plain_region_location(text: str, fallback_region: str, fallback_province: str) -> tuple[str | None, str, str, int | None]:
+    matches = list(re.finditer(r"([^()\d]{2,80}?)\s*\(([A-Z]{2})\)", text, re.UNICODE))
+    if not matches:
+        return None, fallback_province, fallback_region, None
+    match = matches[-1]
+    raw_place = re.sub(r"\s+", " ", match.group(1)).strip(" -–|")
+    province = match.group(2).strip()
+    region = fallback_region
+    municipality = raw_place
+    for candidate_region in sorted(ITALIAN_REGIONS, key=len, reverse=True):
+        region_match = re.match(rf"^{re.escape(candidate_region)}\s+(.+)$", raw_place, re.IGNORECASE)
+        if region_match:
+            region = candidate_region
+            municipality = region_match.group(1).strip(" -–|")
+            break
+    return municipality or None, province, region, match.start()
+
+
+def _extract_location_from_title(text: str, fallback_region: str, fallback_province: str) -> tuple[str | None, str, str]:
+    cecima_style = re.search(r"\ba\s+([^|]{2,80}?)\s*\|\s*\d{4}\s*\|\s*\(([A-Z]{2})\)\s*([A-Za-zÀ-ÿ' -]{2,40})", text, re.IGNORECASE)
+    if cecima_style:
+        return cecima_style.group(1).strip(" -–|"), cecima_style.group(2).strip(), cecima_style.group(3).strip(" -–|")
+
+    pipe_style = re.search(r"[—–-]\s*([^|]{2,80}?)\s*\|\s*(?:Sagr\.it|eventiesagre\.it)", text, re.IGNORECASE)
+    if pipe_style:
+        municipality = pipe_style.group(1).strip(" -–|")
+        province, region = PLACE_HINTS.get(municipality, (fallback_province, fallback_region))
+        return municipality, province, region
+
+    for municipality, (province, region) in PLACE_HINTS.items():
+        if re.search(rf"\b{re.escape(municipality)}\b", text, re.IGNORECASE):
+            return municipality, province, region
+    return None, fallback_province, fallback_region
+
+
 def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> list[dict]:
     events: list[dict] = []
     anchors = re.findall(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", page, re.IGNORECASE | re.DOTALL)
@@ -321,6 +363,18 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
             region = extracted_region
             if title == after_date and extracted_start is not None:
                 title = after_date[:extracted_start].strip(" -–|") or title
+        extracted_municipality, extracted_province, extracted_region, extracted_start = _extract_plain_region_location(after_date, source.region, source.province)
+        if extracted_municipality:
+            municipality = extracted_municipality
+            province = extracted_province
+            region = extracted_region
+            if title == after_date and extracted_start is not None:
+                title = after_date[:extracted_start].strip(" -–|") or title
+        title_municipality, title_province, title_region = _extract_location_from_title(label, region, province)
+        if title_municipality:
+            municipality = title_municipality
+            province = title_province
+            region = title_region
         if not title or len(title) < 4:
             continue
         if _is_index_or_navigation_page(source, urljoin(source.url, html.unescape(href)), title, label):
@@ -407,6 +461,16 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
         municipality = extracted_municipality
         province = extracted_province
         region = extracted_region
+    extracted_municipality, extracted_province, extracted_region, _ = _extract_plain_region_location(content, source.region, source.province)
+    if extracted_municipality:
+        municipality = extracted_municipality
+        province = extracted_province
+        region = extracted_region
+    title_municipality, title_province, title_region = _extract_location_from_title(f"{title} {content}", region, province)
+    if title_municipality:
+        municipality = title_municipality
+        province = title_province
+        region = title_region
     if municipality == "Lazio":
         municipality = PROVINCE_CODES.get(province, "Roma")
     return {
