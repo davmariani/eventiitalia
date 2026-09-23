@@ -197,6 +197,8 @@ def list_events(
         start_at = date_from
     if date_to:
         end_at = date_to
+        if end_at.hour == 0 and end_at.minute == 0 and end_at.second == 0:
+            end_at = end_at.replace(hour=23, minute=59, second=59)
     requested_categories = {item.strip().casefold() for item in categories.split(",")} if categories else set()
     try:
         items = (

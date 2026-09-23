@@ -38,6 +38,20 @@ const radiusOptions = [10, 25, 50, 75, 100, 150, 200, 300, 500] as const;
 const categoryOptions = ["Tutti", "Sagre", "Mercatini", "Mostre", "Concerti", "Festival", "Teatro", "Sport", "Famiglie", "Fiere"];
 const categoryTypes: Record<string, string> = { Sagre: "Sagre", Mercatini: "Mercatini", Mostre: "Mostre", Concerti: "Concerti", Festival: "Festival", Teatro: "Teatro", Sport: "Sport", Famiglie: "Famiglie", Fiere: "Fiere" };
 const fallbackDates = ["2026-09-26", "2026-09-27", "2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"];
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const addDaysIso = (date: Date, days: number) => {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy.toISOString().slice(0, 10);
+};
+const weekendRange = () => {
+  const now = new Date();
+  const day = now.getDay();
+  const saturdayOffset = day === 0 ? -1 : 6 - day;
+  const saturday = new Date(now);
+  saturday.setDate(now.getDate() + saturdayOffset);
+  return { from: saturday.toISOString().slice(0, 10), to: addDaysIso(saturday, 1) };
+};
 
 const formatPlace = (place: PlaceItem) => place.isCurrentLocation ? "Posizione attuale" : `${place.municipality} (${place.province}), ${place.region}`;
 
@@ -49,6 +63,8 @@ const demoEvents: EventItem[] = [
 
 export default function EventDiscovery() {
   const [selectedDate, setSelectedDate] = useState("2026-09-26");
+  const [dateFrom, setDateFrom] = useState("2026-09-26");
+  const [dateTo, setDateTo] = useState("2026-09-26");
   const [selectedCategory, setSelectedCategory] = useState("Tutti");
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [events, setEvents] = useState<EventItem[]>(demoEvents);
@@ -64,19 +80,44 @@ export default function EventDiscovery() {
   });
   const [sortMode, setSortMode] = useState("date");
   const [geoMessage, setGeoMessage] = useState("");
+  const [autoSelectDeparture, setAutoSelectDeparture] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const date = params.get("date");
+    const from = params.get("date_from");
+    const to = params.get("date_to");
     const radius = params.get("radius");
     const category = params.get("categories");
     const partenza = params.get("partenza");
-    if (date) setSelectedDate(date);
+    if (date) {
+      setSelectedDate(date);
+      setDateFrom(date);
+      setDateTo(date);
+    }
+    if (from) setDateFrom(from);
+    if (to) setDateTo(to);
     if (radius === "all") setRadiusKm("all");
     else if (radius && radiusOptions.includes(Number(radius) as (typeof radiusOptions)[number])) setRadiusKm(Number(radius));
     if (category && categoryOptions.includes(category)) setSelectedCategory(category);
-    if (partenza) setDepartureQuery(partenza);
+    if (partenza) {
+      setDepartureQuery(partenza);
+      setAutoSelectDeparture(true);
+    }
   }, []);
+
+  useEffect(() => {
+    const handleHeroSearch = (event: Event) => {
+      const query = (event as CustomEvent<{ query?: string }>).detail?.query?.trim();
+      if (!query) return;
+      setDeparture(null);
+      setDepartureQuery(query);
+      setAutoSelectDeparture(true);
+      if (radiusKm === "all") setRadiusKm(100);
+    };
+    window.addEventListener("feste-hero-search", handleHeroSearch);
+    return () => window.removeEventListener("feste-hero-search", handleHeroSearch);
+  }, [radiusKm]);
 
   useEffect(() => {
     if (departure || departureQuery.trim().length < 2) {
@@ -102,6 +143,7 @@ export default function EventDiscovery() {
         if (data[0]) {
           setDeparture(data[0]);
           setDepartureQuery(formatPlace(data[0]));
+          setAutoSelectDeparture(false);
         }
       })
       .catch(() => undefined);
@@ -111,11 +153,12 @@ export default function EventDiscovery() {
     const params = new URLSearchParams();
     if (departure && !departure.isCurrentLocation) params.set("partenza", departure.istat_code || departure.municipality.toLowerCase());
     params.set("radius", departure ? String(radiusKm) : "all");
-    params.set("date", selectedDate);
+    params.set("date_from", dateFrom);
+    params.set("date_to", dateTo);
     if (selectedCategory !== "Tutti") params.set("categories", selectedCategory);
     window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
     if (departure && typeof radiusKm === "number") window.localStorage.setItem("feste-radius-km", String(radiusKm));
-  }, [departure, radiusKm, selectedDate, selectedCategory]);
+  }, [departure, radiusKm, dateFrom, dateTo, selectedCategory]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -128,6 +171,8 @@ export default function EventDiscovery() {
       if (typeof radiusKm === "number") params.set("radius_km", String(radiusKm));
     }
     if (selectedCategory !== "Tutti") params.set("categories", categoryTypes[selectedCategory]);
+    params.set("date_from", `${dateFrom}T00:00:00`);
+    params.set("date_to", `${dateTo}T23:59:59`);
 
     setIsSearching(true);
     fetch(`${apiBase()}/api/events?${params.toString()}`)
@@ -160,13 +205,13 @@ export default function EventDiscovery() {
       })
       .catch(() => setEvents(demoEvents))
       .finally(() => setIsSearching(false));
-  }, [departure, radiusKm, sortMode, selectedCategory]);
+  }, [departure, radiusKm, sortMode, selectedCategory, dateFrom, dateTo]);
 
   const visibleEvents = useMemo(() => {
-    const filtered = events.filter((event) => event.dates.includes(selectedDate));
+    const filtered = events.filter((event) => event.dates.some((date) => date >= dateFrom && date <= dateTo));
     if (!departure || !sortMode.startsWith("distance")) return filtered;
     return [...filtered].sort((a, b) => sortMode === "distance_desc" ? (b.distanceKm ?? -1) - (a.distanceKm ?? -1) : (a.distanceKm ?? 999999) - (b.distanceKm ?? 999999));
-  }, [events, selectedDate, departure, sortMode]);
+  }, [events, dateFrom, dateTo, departure, sortMode]);
 
   const availableDateOptions = Array.from(new Set([...fallbackDates, ...events.flatMap((event) => event.dates)])).sort().map((value) => {
     const date = new Date(`${value}T12:00:00`);
@@ -180,6 +225,18 @@ export default function EventDiscovery() {
     if (!radiusKm || radiusKm === "all") setRadiusKm(100);
     setGeoMessage("");
   };
+
+  const setSingleDate = (value: string) => {
+    setSelectedDate(value);
+    setDateFrom(value);
+    setDateTo(value);
+  };
+
+  useEffect(() => {
+    if (!autoSelectDeparture || departure || placeResults.length === 0) return;
+    selectPlace(placeResults[0]);
+    setAutoSelectDeparture(false);
+  }, [autoSelectDeparture, departure, placeResults]);
 
   const clearDeparture = () => {
     setDeparture(null);
@@ -243,13 +300,22 @@ export default function EventDiscovery() {
       </div>
       <div className="date-picker" aria-label="Seleziona la data degli eventi">
         <div className="date-picker-label">Eventi disponibili <span>{availableDateOptions.length > 0 ? new Date(`${availableDateOptions[0].value}T12:00:00`).getFullYear() : ""}</span></div>
-        <div className="date-options">{availableDateOptions.map((date) => <button className={date.value === selectedDate ? "date-option active" : "date-option"} key={date.value} onClick={() => setSelectedDate(date.value)} type="button" aria-pressed={date.value === selectedDate}><small>{date.day}</small><strong>{date.number}</strong><small>{date.month}</small></button>)}</div>
+        <div className="date-options">{availableDateOptions.map((date) => <button className={date.value === selectedDate && dateFrom === dateTo ? "date-option active" : "date-option"} key={date.value} onClick={() => setSingleDate(date.value)} type="button" aria-pressed={date.value === selectedDate && dateFrom === dateTo}><small>{date.day}</small><strong>{date.number}</strong><small>{date.month}</small></button>)}</div>
         <button className="calendar-button" type="button" aria-label="Apri il calendario">▦</button>
       </div>
+      <div className="date-range-panel">
+        <div className="date-shortcuts">
+          <button type="button" onClick={() => setSingleDate(todayIso())}>Oggi</button>
+          <button type="button" onClick={() => setSingleDate(addDaysIso(new Date(), 1))}>Domani</button>
+          <button type="button" onClick={() => { const range = weekendRange(); setDateFrom(range.from); setDateTo(range.to); setSelectedDate(range.from); }}>Questo weekend</button>
+        </div>
+        <label>Dal<input type="date" value={dateFrom} onChange={(event) => { const value = event.target.value; setDateFrom(value); if (dateTo < value) setDateTo(value); setSelectedDate(value); }} /></label>
+        <label>Al<input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value < dateFrom ? dateFrom : event.target.value)} /></label>
+      </div>
       <div className="category-filter" aria-label="Filtra per categoria"><span className="filter-label">Tipo di evento</span>{categoryOptions.map((category) => <button className={category === selectedCategory ? "category-chip active" : "category-chip"} key={category} onClick={() => setSelectedCategory(category)} type="button" aria-pressed={category === selectedCategory}>{category}</button>)}<a className="map-filter-link" href="#mappa">Mappa <span>↘</span></a></div>
-      <div className="selected-date-note">Eventi per <strong>{new Date(`${selectedDate}T12:00:00`).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</strong>{departure && <span> · {typeof radiusKm === "number" ? `${radiusKm} km da ${departure.municipality}` : "Tutta Italia"}</span>}</div>
+      <div className="selected-date-note">Eventi {dateFrom === dateTo ? <>per <strong>{new Date(`${dateFrom}T12:00:00`).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}</strong></> : <>dal <strong>{new Date(`${dateFrom}T12:00:00`).toLocaleDateString("it-IT", { day: "numeric", month: "long" })}</strong> al <strong>{new Date(`${dateTo}T12:00:00`).toLocaleDateString("it-IT", { day: "numeric", month: "long" })}</strong></>}{departure && <span> · {typeof radiusKm === "number" ? `${radiusKm} km da ${departure.municipality}` : "Tutta Italia"}</span>}</div>
       {visibleEvents.length > 0 ? <div className="event-grid">{visibleEvents.map((event) => <article className="event-card" key={`${event.title}-${event.date}`}><div className={`event-image ${event.image}`}><span>{event.date.toUpperCase()}</span></div><div className="event-content"><p className="event-type">{event.type} · {event.region}</p><h3>{event.title}</h3><p>{event.location}</p>{departure && event.distanceKm != null && <p className="event-distance">📍 {event.distanceKm.toFixed(1)} km da {departure.municipality}, in linea d'aria</p>}<p className="event-description">{event.description}</p><button className="event-detail-button" type="button" onClick={() => setSelectedEvent(event)}>Scopri l&apos;evento <span>↗</span></button></div></article>)}</div> : <div className="empty-results"><strong>{emptyMessage}</strong><span>{departure ? "Prova ad ampliare il raggio o cambiare data." : "Prova a cambiare data o categoria."}</span></div>}
-      <div className="map-section" id="mappa"><div className="map-heading"><div><p className="eyebrow">Esplora sulla mappa</p><h2>Succede<br /><em>qui vicino.</em></h2></div><div className="map-intro"><p>Gli eventi mostrati corrispondono ai filtri attivi.</p><button type="button" onClick={useCurrentLocation}>Usa la mia posizione <span>↗</span></button></div></div><MapIsland events={visibleEvents} selectedDate={selectedDate} onEventClick={(mapEvent) => { const event = visibleEvents.find((item) => item.title === mapEvent.title); if (event) setSelectedEvent(event); }} departure={departure} radiusKm={radiusKm} /></div>
+      <div className="map-section" id="mappa"><div className="map-heading"><div><p className="eyebrow">Esplora sulla mappa</p><h2>Succede<br /><em>qui vicino.</em></h2></div><div className="map-intro"><p>Gli eventi mostrati corrispondono ai filtri attivi.</p><button type="button" onClick={useCurrentLocation}>Usa la mia posizione <span>↗</span></button></div></div><MapIsland events={visibleEvents} selectedDate={dateFrom} onEventClick={(mapEvent) => { const event = visibleEvents.find((item) => item.title === mapEvent.title); if (event) setSelectedEvent(event); }} departure={departure} radiusKm={radiusKm} /></div>
       {selectedEvent && <div className="event-modal-backdrop" role="presentation" onMouseDown={() => setSelectedEvent(null)}><article className="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-modal-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" type="button" onClick={() => setSelectedEvent(null)} aria-label="Chiudi dettaglio evento">×</button><div className={`modal-image ${selectedEvent.image}`}><span>{selectedEvent.date.toUpperCase()}</span></div><div className="modal-content"><p className="event-type">{selectedEvent.type} · {selectedEvent.region}</p><h2 id="event-modal-title">{selectedEvent.title}</h2><p className="modal-location">{selectedEvent.location}</p>{departure && selectedEvent.distanceKm != null && <p className="event-distance">Distanza geografica: {selectedEvent.distanceKm.toFixed(1)} km da {departure.municipality}</p>}<p>{selectedEvent.description}</p><div className="modal-facts"><span><strong>Quando</strong>{selectedEvent.date}</span><span><strong>Posizione</strong>{selectedEvent.locationPrecision === "municipality" ? "Comune approssimato" : "Fonte evento"}</span></div><a className="modal-source" href={getEventSourceUrl(selectedEvent)} target="_blank" rel="noreferrer">Vai alla fonte ufficiale <span>↗</span></a></div></article></div>}
     </section>
   );

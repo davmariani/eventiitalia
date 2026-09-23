@@ -254,6 +254,25 @@ def _event_links(source: SourceConfig, page: str) -> list[str]:
     return list(dict.fromkeys(links))[:80]
 
 
+def _extract_region_location(text: str, fallback_region: str, fallback_province: str) -> tuple[str | None, str, str, int | None]:
+    matches = list(re.finditer(r"([\wÀ-ÿ' .-]{2,80}?)\s*\(([A-Z]{2})\)", text, re.UNICODE))
+    if not matches:
+        return None, fallback_province, fallback_region, None
+
+    match = matches[-1]
+    raw_place = re.sub(r"\s+", " ", match.group(1)).strip(" -–|")
+    province = match.group(2).strip()
+    region = fallback_region
+    municipality = raw_place
+    for candidate_region in sorted(ITALIAN_REGIONS, key=len, reverse=True):
+        region_match = re.match(rf"^{re.escape(candidate_region)}\s+(.+)$", raw_place, re.IGNORECASE)
+        if region_match:
+            region = candidate_region
+            municipality = region_match.group(1).strip(" -–|")
+            break
+    return municipality or None, province, region, match.start()
+
+
 def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> list[dict]:
     events: list[dict] = []
     anchors = re.findall(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", page, re.IGNORECASE | re.DOTALL)
@@ -293,6 +312,13 @@ def _parse_listing_events(source: SourceConfig, page: str, now: datetime) -> lis
                     break
             if title == after_date:
                 title = after_date[:location_match.start()].strip(" -–|") or title
+        extracted_municipality, extracted_province, extracted_region, extracted_start = _extract_region_location(after_date, source.region, source.province)
+        if extracted_municipality:
+            municipality = extracted_municipality
+            province = extracted_province
+            region = extracted_region
+            if title == after_date and extracted_start is not None:
+                title = after_date[:extracted_start].strip(" -–|") or title
         if not title or len(title) < 4:
             continue
         if _is_index_or_navigation_page(source, urljoin(source.url, html.unescape(href)), title, label):
@@ -374,6 +400,11 @@ def _parse_event(source: SourceConfig, url: str, page: str, now: datetime) -> di
         municipality = location_match.group(1).strip()
         province = location_match.group(2)
     region = source.region
+    extracted_municipality, extracted_province, extracted_region, _ = _extract_region_location(content, source.region, source.province)
+    if extracted_municipality:
+        municipality = extracted_municipality
+        province = extracted_province
+        region = extracted_region
     if municipality == "Lazio":
         municipality = PROVINCE_CODES.get(province, "Roma")
     return {
